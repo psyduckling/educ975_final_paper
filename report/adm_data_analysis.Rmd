@@ -1,0 +1,268 @@
+---
+title: "Factors that influence admissions to computer science graduate programs"
+author: "Eva Y."
+date: "2022-12-07"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Description
+
+The purpose of this analysis is to investigate which factors influence admissions to computer science graduate programs.
+
+## Load data and dependencies
+
+```{r load dependencies}
+library(data.table)
+library(ggplot2)
+library(fmsb)
+```
+
+```{r load data}
+adm_dat <- fread("../data/adm_data.csv", sep = ",")
+```
+
+## Data exploration
+
+We're going to explore the data to gain insights into its features (e.g., number of columns and rows, data types). 
+
+```{r explore data}
+# str() gives me a general idea of the data (e.g., it has 400 rows and 9 columns)
+adm_dat[, str(.SD)]
+```
+
+```{r check out top 5 rows}
+# print top 5 rows
+adm_dat[, head(.SD)]
+```
+
+### Metadata
+
+Let's refer to the data source and its metadata. This dataset is downloaded from [here](https://www.kaggle.com/datasets/akshaydattatraykhare/data-for-admission-in-the-university). Based on the metadata, it contains the following features so this seems to line up with what we observed so far in terms of data types (e.g., GRE score is an integer data type).
+
+* GRE Scores (out of 340)
+* TOEFL Scores (out of 120)
+* University Rating (out of 5)
+* Statement of Purpose (SOP) (out of 5)
+* Letter of Recommendation (LOR) Strength (out of 5)
+* Undergraduate GPA (out of 10)
+* Research Experience (either 0 or 1)
+* Chance of Admit (ranging from 0 to 1)
+
+### Descriptive statistics
+
+Another way to explore the data is to look at descriptive statistics. For example, this will help us confirm if GRE scores are indeed out of 340 and the same applies to the other features.
+
+```{r descriptive stats}
+# get the descriptive stats of each column
+adm_dat[, summary(.SD)]
+```
+
+```{r standard dev}
+# calculate sd for continuous variables
+adm_dat[, lapply(.SD, sd), .SDcols = c(2, 3, 5:7, 9)]
+```
+
+### Missing values
+
+Before moving on, we should also check for missing values in the dataset.
+
+```{r check for missing values}
+# count number of missing values in each column
+adm_dat[, lapply(.SD, function(x) sum(is.na(x))), .SDcols = 1:9]
+```
+
+There are no missing values in this dataset so we don't have to conduct any pre-processing to account for missing values. 
+
+### Data preprocessing
+
+There are a few things we should clean up before moving on to visualization and analysis. First, let's change how the columns are named.
+
+```{r clean up column names}
+# change the column names to all lowercase letters and replace space with underscore
+new_colnames <- gsub(" ", "_", tolower(names(adm_dat)))
+
+# there is a . in serial_no. so let's get rid of that too
+new_colnames <- gsub("[.]", "", new_colnames)
+
+# replace column names in the data with new_colnames
+setnames(adm_dat, names(adm_dat), new_colnames)
+
+# let's check out the new column names
+names(adm_dat)
+```
+
+For the purpose of this paper, we're going to use the chance of admit feature to create a new feature, which is acceptance. Although the original dataset provided chance of admit as the response variable, it just doesn't make much sense to use it in this analysis since we have no idea how it is collected or calculated. 
+
+To be fair, this dataset is not a *real*. It is created for educational/practice purposes only. To create the acceptance feature, chance of admit values over 0.7 will be assigned 1 (accepted to the graduate program) whereas chance of admit values below and equal to 0.7 will be assigned 0 (not accepted to the graduate program). This is based on the mean of chance of admit values in the dataset (mean = 0.7244).
+
+```{r create acceptance column}
+# create the acceptance column based on the above cut offs
+# let's check the number of rows based on both cut offs
+adm_dat[chance_of_admit > 0.7, .N]
+adm_dat[chance_of_admit <= 0.7, .N]
+
+# now create the new feature
+adm_dat[chance_of_admit > 0.7, acceptance := 1]
+adm_dat[chance_of_admit <= 0.7, acceptance := 0]
+
+# do a sanity check count
+adm_dat[, .N, by = acceptance]
+
+# ok, the number of rows seems to add up so this is good.
+```
+There are a few features that should be treated as categorical variables. These include university rating, research, and acceptance.
+
+```{r create factors}
+# change a few variables to factors
+factor_cols <- c("university_rating", "research", "acceptance")
+
+adm_dat[, (factor_cols) := lapply(.SD, as.factor), .SDcols = factor_cols]
+```
+
+We are going to check two-way contingency table for the categorical predictors to make sure there are no empty cells.
+
+```{r two-way contingency table}
+xtabs(~acceptance + research, data = adm_dat)
+xtabs(~acceptance + university_rating, data = adm_dat)
+```
+
+## Data visualization
+
+We will visualize the continuous variables by creating a few histogram plots. 
+
+### GRE score
+
+```{r plot gre_score}
+ggplot(adm_dat, aes(x = gre_score)) + 
+  geom_histogram(aes(y=..density..), color = "black", fill = "white") +
+  geom_density(alpha = .2, fill = "#FF6666") +
+  theme_bw() +
+  labs(x = "GRE Score")
+```
+```{r save gre_score, echo=F, eval=F}
+ggsave("../plots/gre_score_hist.png", width = 6, height = 4)
+```
+
+### TOEFL score
+
+```{r plot toefl_score}
+ggplot(adm_dat, aes(x = toefl_score)) + 
+  geom_histogram(aes(y=..density..), color = "black", fill = "white") +
+  geom_density(alpha = .2, fill = "#FF6666") +
+  theme_bw() +
+  labs(x = "TOEFL Score")
+```
+```{r save toefl_score, echo=F, eval=F}
+ggsave("../plots/toefl_score_hist.png", width = 6, height = 4)
+```
+
+### SOP
+
+```{r plot sop}
+ggplot(adm_dat, aes(x = sop)) + 
+  geom_histogram(aes(y=..density..), color = "black", fill = "white", binwidth = 0.5) +
+  geom_density(alpha = .2, fill = "#FF6666") +
+  theme_bw() +
+  labs(x = "Statement of Purpose Score")
+```
+
+```{r save sop, echo=F, eval=F}
+ggsave("../plots/sop_hist.png", width = 6, height = 4)
+```
+
+### LOR
+
+```{r plot lor}
+ggplot(adm_dat, aes(x = lor)) + 
+  geom_histogram(aes(y=..density..), color = "black", fill = "white", binwidth = 0.5) +
+  geom_density(alpha = .2, fill = "#FF6666") +
+  theme_bw() +
+  labs(x = "Letter of Reference Score")
+```
+
+```{r save lor, echo=F, eval=F}
+ggsave("../plots/lor_hist.png", width = 6, height = 4)
+```
+
+### cGPA
+
+```{r plot cgpa}
+ggplot(adm_dat, aes(x = cgpa)) + 
+  geom_histogram(aes(y=..density..), color = "black", fill = "white") +
+  geom_density(alpha = .2, fill = "#FF6666") +
+  theme_bw() +
+  labs(x = "cGPA")
+```
+```{r save cgpa, echo=F, eval=F}
+ggsave("../plots/cgpa_hist.png", width = 6, height = 4)
+```
+
+
+## Multiple logistic regression
+
+Use a multiple logistic regression model to predict acceptance based on gre_score, toefl_score, university_rating, sop, lor, cgpa, and research. 
+
+```{r lr}
+model <- glm(acceptance ~ gre_score + toefl_score + university_rating + sop + lor + cgpa + research, data = adm_dat, family = "binomial")
+
+summary(model)
+```
+
+Based on this output, gre_score, lor, cgpa, and research have significant effects on admission to computer science graduate programs.
+
+Now, there are few things left to do. First, we want to know if the overall model is significant or not. 
+
+```{r overall model}
+with(model, null.deviance - deviance)
+
+with(model, df.null - df.residual)
+
+with(model, pchisq(null.deviance - deviance, df.null - df.residual, lower.tail = FALSE))
+```
+
+The p-value < 0.001 so the overall model is statistically significant.
+
+Next, we want to calculate odds ratio and 95% CI. 
+
+```{r OR and 95% CI}
+exp(coef(model))
+
+exp(cbind(OR = coef(model), confint(model)))
+```
+
+Finally, we want to calculate the Nagelkerke R-squared value of the model.
+
+```{r calculate nagelkerke r squared value}
+NagelkerkeR2(model)
+```
+
+```{r mlr, echo = F, eval = F}
+# conduct mlr
+model <- lm(`Chance of Admit` ~ `GRE Score` + `TOEFL Score` + `University Rating` + SOP + LOR + CGPA + Research, data = adm_dat)
+
+summary(model)
+```
+
+## Intepretation
+
+* A logistic regression was conducted to predict the likelihood of gaining admission into a computer science graduate program based on GRE score, TOEFL score, rating of undergraduate university, statement of purpose score, letter of reference score, cGPA, and research experience. 
+
+* The logistic regression model was statistically significant ($\chi^2$ (10, *N* = 400) = 291.98, *p* < .001). 
+
+* The model accounted for 69.8% (Nagelkerke *$R^2$*) of the variance in gaining admission into a computer science graduate program. 
+
+* GRE score, letter of reference score, cGPA, and research experience, but not TOEFL score, rating of undergraduate university, and statement of purpose score, were associated with gaining admission into a computer science graduate program (see multiple logistic regression output). 
+
+* Increase in GRE score (OR = 1.086, 95% C.I. (1.028, 1.149)), letter of reference score (OR = 2.012, 95% C.I. (1.183, 3.499)), and cGPA (OR = 9.648, 95% C.I. (2.991, 33.059)) were associated with an increased likelihood of gaining admission into a computer science graduate program.
+
+* The model also showed that having research experience is associated with a higher likelihood of gaining admission into a computer science graduate program compared to having no research experience (OR = 2.320, 95% C.I. (1.193, 4.523)). 
+
+The end.
+
+
